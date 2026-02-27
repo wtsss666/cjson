@@ -104,23 +104,56 @@ typedef struct cJSON
 {
     /* next/prev allow you to walk array/object chains. Alternatively, use GetArraySize/GetArrayItem/GetObjectItem */
     struct cJSON *next;
+    /*struct cJSON *prev 是一个指向同级前一个 cJSON 节点的指针，用于构建双向链表的“前驱链”，实现对同一层级节点的逆序遍历。
+    例如，在 JSON 对象 {"name":"张三","age":20} 中，“age”节点的 prev 就会指向“name”节点。
+    如果当前节点是同级的第一个节点，prev 的值为 NULL；否则它会始终指向前面的同级节点。
+    这个指针由 cJSON 内部的函数（如 cJSON_AddItemToObject）自动维护，在递归释放节点时，需要沿着 prev 指针遍历所有同级节点，才能完整释放整个链表。*/
     struct cJSON *prev;
     /* An array or object item will have a child pointer pointing to a chain of the items in the array/object. */
+    /*prev 是指向同级上一个 cJSON 节点的指针，它和 next 配合，共同构成双向链表的“前驱链”，支持对同级节点的反向遍历（从后往前）。
+    在刚才的例子中，“age”节点的 prev 就会指向“name”节点。
+    如果当前节点是同级的第一个节点，prev 的值为 NULL；否则它会指向前序的同级节点。
+    和 next 一样，prev 也由库函数自动维护，释放时需要配合遍历。*/
     struct cJSON *child;
 
-    /* The type of the item, as above. */
+    /* The type of the item, as above*/
+    /*child 是指向当前节点子节点的指针，它是实现 JSON 嵌套结构的核心支撑，只有对象和数组类型的节点才有意义。
+    当一个节点是对象或数组时，child 会指向其内部子节点链表的头节点；如果节点是字符串、数字等基本类型，child 的值为 NULL。
+    比如在 JSON {"hobby":["游戏","编程"]} 中，“hobby”节点是数组类型，
+    它的 child 就会指向数组中第一个元素“游戏”的节点，而“游戏”和“编程”这两个子节点又通过 next/prev 构成双向链表。*/
     int type;
-
     /* The item's string, if type==cJSON_String  and type == cJSON_Raw */
+    /*ype 是一个整数，用来标记当前 cJSON 节点的类型，它决定了节点存储的值类型以及解析、生成时的处理逻辑。
+    cJSON 用宏定义了不同的类型，比如 cJSON_String（字符串）、cJSON_Number（数字）、cJSON_Object（对象）、cJSON_Array（数组）等。
+    当 type 为 cJSON_String 时，valuestring 字段有效；当 type 为 cJSON_Number 时，valuedouble 字段有效；
+    当 type 为 cJSON_Object 或 cJSON_Array 时，child 指针才有意义。*/
     char *valuestring;
     /* writing to valueint is DEPRECATED, use cJSON_SetNumberValue instead */
+    /*valuestring 是一个字符指针，当节点类型为字符串（cJSON_String）时，它存储着该节点对应的字符串值。
+    比如在 JSON {"name":"张三"} 中，“name”节点的 valuestring 就指向字符串 "张三"。
+    这个字符串是通过 malloc 动态分配的，由 cJSON 内部管理，
+    在调用 cJSON_Delete 释放节点时，会自动释放 valuestring 占用的内存，不需要手动 free。*/
     int valueint;
-    /* The item's number, if type==cJSON_Number */
+    /* Thvalueint 是一个整数，早期版本中用来存储 JSON 数字类型的整数值，但现在这个字段已经被标记为弃用。
+    因为 JSON 规范中数字类型不区分整数和浮点数，cJSON 现在统一使用 valuedouble 来存储所有数字，
+    valueint 仅作为历史兼容保留，不在新代码中直接读写。*/
+    
+
     double valuedouble;
 
-    /* The item's name string, if this item is the child of, or is in the list of subitems of an object. */
+    /* Thvaluedouble 是一个双精度浮点数，当节点类型为数字（cJSON_Number）时，它存储着该节点对应的数字值。
+    无论是整数（如 20）还是小数（如 3.14），都统一用 valuedouble 存储，这样既符合 JSON 规范，又避免了类型转换的问题。
+    和 valuestring 一样，这个值直接存储在结构体中，不需要额外的内存分配。*/
+   
     char *string;
+   /* char *string;string 是一个字符指针，它存储的是当前节点在 JSON 中的键名。
+   比如在 JSON {"name":"张三"} 中，“name”节点的 string 就指向字符串 "name"。
+   对于数组中的元素，因为没有键名，string 的值为 NULL。这个键名字符串也是动态分配的，由 cJSON 内部管理，释放节点时会自动释放。*/
+    
 } cJSON;
+//整体来看，cJSON 结构体是“双向链表 + 树形结构”的复合设计：
+//next/prev 处理同级节点的有序遍历，child 实现 JSON 的嵌套层级，type 和值字段负责存储数据，string 作为键名标识。
+//这种结构既高效支持了 JSON 的树状嵌套，又能灵活遍历所有节点。
 
 typedef struct cJSON_Hooks
 {
