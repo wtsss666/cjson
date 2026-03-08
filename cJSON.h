@@ -104,16 +104,12 @@ typedef struct cJSON
 {
     /* next/prev allow you to walk array/object chains. Alternatively, use GetArraySize/GetArrayItem/GetObjectItem */
     struct cJSON *next;
-    /*struct cJSON *prev 是一个指向同级前一个 cJSON 节点的指针，用于构建双向链表的“前驱链”，实现对同一层级节点的逆序遍历。
-    例如，在 JSON 对象 {"name":"张三","age":20} 中，“age”节点的 prev 就会指向“name”节点。
-    如果当前节点是同级的第一个节点，prev 的值为 NULL；否则它会始终指向前面的同级节点。
+    /* prev 是指向同级上一个 cJSON 节点的指针，它和 next 配合，共同构成双向链表的"前驱链"，支持对同级节点的反向遍历（从后往前）。
+    例如，在 JSON 对象 {"name":"张三","age":20} 中，"age"节点的 prev 就会指向"name"节点。
+    如果当前节点是同级的第一个节点，prev 的值为 NULL；否则它会指向前序的同级节点。
     这个指针由 cJSON 内部的函数（如 cJSON_AddItemToObject）自动维护，在递归释放节点时，需要沿着 prev 指针遍历所有同级节点，才能完整释放整个链表。*/
     struct cJSON *prev;
     /* An array or object item will have a child pointer pointing to a chain of the items in the array/object. */
-    /*prev 是指向同级上一个 cJSON 节点的指针，它和 next 配合，共同构成双向链表的“前驱链”，支持对同级节点的反向遍历（从后往前）。
-    在刚才的例子中，“age”节点的 prev 就会指向“name”节点。
-    如果当前节点是同级的第一个节点，prev 的值为 NULL；否则它会指向前序的同级节点。
-    和 next 一样，prev 也由库函数自动维护，释放时需要配合遍历。*/
     struct cJSON *child;
 
     /* The type of the item, as above*/
@@ -195,6 +191,8 @@ CJSON_PUBLIC(cJSON *) cJSON_ParseWithLengthOpts(const char *value, size_t buffer
 CJSON_PUBLIC(char *) cJSON_Print(const cJSON *item);
 /* Render a cJSON entity to text for transfer/storage without any formatting. */
 CJSON_PUBLIC(char *) cJSON_PrintUnformatted(const cJSON *item);
+/* Render a cJSON entity to text with pretty formatting, supports custom indent size (number of spaces per level, 0 means use tab) */
+CJSON_PUBLIC(char *) cJSON_PrintPretty(const cJSON *item, int indent);
 /* Render a cJSON entity to text using a buffered strategy. prebuffer is a guess at the final size. guessing well reduces reallocation. fmt=0 gives unformatted, =1 gives formatted */
 CJSON_PUBLIC(char *) cJSON_PrintBuffered(const cJSON *item, int prebuffer, cJSON_bool fmt);
 /* Render a cJSON entity to text using a buffer already allocated in memory with given length. Returns 1 on success and 0 on failure. */

@@ -1,3 +1,4 @@
+/* 第三周作业：JSON格式化美化功能扩展 */
 /*
   Copyright (c) 2009-2017 Dave Gamble and cJSON contributors
 
@@ -18,7 +19,7 @@
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
   THE SOFTWARE.
-*/与系统头文件中的单行注释有关
+*/
 
 /* cJSON */
 /* JSON parser in C. */
@@ -39,7 +40,7 @@
 #if defined(_MSC_VER)    
 #pragma warning (push)        //用于保存当前的警告状态 
 /* disable warning about single line comments in system headers */
-#pragma warning (disable : 4001)   //禁用特定的警告（4001),与系统头文件中的单行注释有关
+#pragma warning (disable : 4001)   //禁用特定的警告（4001）
 #endif
 //引入了字符串操作,标准输入,数学函数标准库,函数极限值字符类型检查和浮点数操作
 #include <string.h>
@@ -162,7 +163,7 @@ static int case_insensitive_strcmp(const unsigned char *string1, const unsigned 
 {
     if ((string1 == NULL) || (string2 == NULL))
     {
-        return 1;与系统头文件中的单行注释有关
+        return 1;
     }
 
     if (string1 == string2)
@@ -506,6 +507,7 @@ typedef struct
     size_t depth; /* current nesting depth (for formatted printing) */
     cJSON_bool noalloc;
     cJSON_bool format; /* is this print a formatted print */
+    int indent_size; /* 每层缩进的空格数，0表示使用制表符 */
     internal_hooks hooks;
 } printbuffer;
 
@@ -925,7 +927,7 @@ static cJSON_bool parse_string(cJSON * const item, parse_buffer * const input_bu
                     *output_pointer++ = '\t';
                     break;
                 case '\"':
-                case '\\':与系统头文件中的单行注释有关
+                case '\\':
                 case '/':
                     *output_pointer++ = input_pointer[1];
                     break;
@@ -1002,7 +1004,7 @@ static cJSON_bool print_string_ptr(const unsigned char * const input, printbuffe
     }
 
     /* set "flag" to 1 if something needs to be escaped */
-    for (input_pointer = input; *input_pointer; input_与系统头文件中的单行注释有关pointer++)
+    for (input_pointer = input; *input_pointer; input_pointer++)
     {
         switch (*input_pointer)
         {
@@ -1204,6 +1206,7 @@ static unsigned char *print(const cJSON * const item, cJSON_bool format, const i
     buffer->buffer = (unsigned char*) hooks->allocate(default_buffer_size);
     buffer->length = default_buffer_size;  // 记录缓冲区总长度 供print_value判断是否需要扩容
     buffer->format = format;               // 把格式化要求传给缓冲区 print_value会根据这个参数决定是否加缩进
+    buffer->indent_size = 0;              // 默认使用制表符缩进，0表示用制表符
     buffer->hooks = *hooks;                // 把内存操作函数绑定到缓冲区 print_value扩容时会用到
     // 内存分配失败直接跳转到fail 此时还没调用下层函数 只需释放当前缓冲区 本处还没有效内存
     if (buffer->buffer == NULL)
@@ -1398,8 +1401,7 @@ CJSON_PUBLIC(cJSON *) cJSON_ParseWithLengthOpts(const char *value, size_t buffer
     return item;
 
 /* 失败处理标签：统一释放资源 记录错误信息 返回NULL */
-fail
-:
+fail:
     /* 若已创建cJSON节点 释放该节点 避免内存泄漏 */
     if (item != NULL)
     {
@@ -1488,7 +1490,7 @@ CJSON_PUBLIC(cJSON *) cJSON_ParseWithLength(const char *value, size_t buffer_len
      */
     return cJSON_ParseWithLengthOpts(value, buffer_length, 0, 0);
 }
-与系统头文件中的单行注释有关
+
 // 通用工具宏：取两个值中较小的那个
 // 后续在拷贝缓冲区内容时会用到 避免拷贝超出缓冲区长度的内容 防止内存越界
 #define cjson_min(a, b) (((a) < (b)) ? (a) : (b))
@@ -1530,6 +1532,7 @@ static unsigned char *print(const cJSON * const item, cJSON_bool format, const i
     buffer->buffer = (unsigned char*) hooks->allocate(default_buffer_size);
     buffer->length = default_buffer_size;  // 记录缓冲区总长度 供print_value判断是否需要扩容
     buffer->format = format;               // 把格式化要求传给缓冲区 print_value会根据这个参数决定是否加缩进
+    buffer->indent_size = 0;              // 默认使用制表符缩进，0表示用制表符
     buffer->hooks = *hooks;                // 把内存操作函数绑定到缓冲区 print_value扩容时会用到
     // 内存分配失败直接跳转到fail 此时还没调用下层函数 只需释放当前缓冲区 本处还没有效内存
     if (buffer->buffer == NULL)
@@ -1649,6 +1652,88 @@ CJSON_PUBLIC(char *) cJSON_PrintUnformatted(const cJSON *item)
 }
 
 /*
+ * 函数名：cJSON_PrintPretty
+ * 作用：美化输出JSON字符串，支持自定义缩进空格数
+ *       和cJSON_Print类似，但可以用空格代替制表符，并且可以设置每层缩进几个空格
+ * 参数：
+ *   item：待转换的cJSON根节点，传NULL则返回NULL
+ *   indent：每层缩进的空格数，传0表示使用制表符（和cJSON_Print一样）
+ * 返回值：
+ *   成功：返回格式化的JSON字符串，需调用free手动释放
+ *   失败：返回NULL
+ * 使用示例：
+ *   cJSON_PrintPretty(json, 2)  // 每层缩进2个空格
+ *   cJSON_PrintPretty(json, 4)  // 每层缩进4个空格
+ */
+static unsigned char *print_pretty(const cJSON * const item, int indent, const internal_hooks * const hooks)
+{
+    // 默认的缓冲区初始大小
+    static const size_t default_buffer_size = 256;
+    printbuffer buffer[1];
+    unsigned char *printed = NULL;
+
+    // 清空缓冲区结构体
+    memset(buffer, 0, sizeof(buffer));
+
+    // 初始化输出缓冲区
+    buffer->buffer = (unsigned char*) hooks->allocate(default_buffer_size);
+    buffer->length = default_buffer_size;
+    buffer->format = true;  // 启用格式化
+    buffer->indent_size = indent;  // 设置缩进空格数
+    buffer->hooks = *hooks;
+    
+    if (buffer->buffer == NULL)
+    {
+        goto fail;
+    }
+
+    // 调用print_value完成JSON字符串拼接
+    if (!print_value(item, buffer))
+    {
+        goto fail;
+    }
+    update_offset(buffer);
+
+    // 调整缓冲区大小
+    if (hooks->reallocate != NULL)
+    {
+        printed = (unsigned char*) hooks->reallocate(buffer->buffer, buffer->offset + 1);
+        if (printed == NULL) {
+            goto fail;
+        }
+        buffer->buffer = NULL;
+    }
+    else
+    {
+        // 不支持realloc的情况，需要手动拷贝
+        printed = (unsigned char*) hooks->allocate(buffer->offset + 1);
+        if (printed == NULL)
+        {
+            goto fail;
+        }
+        memcpy(printed, buffer->buffer, buffer->offset + 1);
+        hooks->deallocate(buffer->buffer);
+        buffer->buffer = NULL;
+    }
+
+    return printed;
+
+fail:
+    if (buffer->buffer != NULL)
+    {
+        hooks->deallocate(buffer->buffer);
+    }
+
+    return NULL;
+}
+
+CJSON_PUBLIC(char *) cJSON_PrintPretty(const cJSON *item, int indent)
+{
+    // 调用print_pretty函数，传入缩进空格数
+    return (char*)print_pretty(item, indent, &global_hooks);
+}
+
+/*
  * 函数名：cJSON_PrintBuffered
  * 作用：对外暴露的预分配缓冲区输出JSON接口
  *       允许用户指定初始缓冲区大小 减少底层自动扩容的次数 提升效率
@@ -1666,7 +1751,7 @@ CJSON_PUBLIC(char *) cJSON_PrintUnformatted(const cJSON *item)
 CJSON_PUBLIC(char *) cJSON_PrintBuffered(const cJSON *item, int prebuffer, cJSON_bool fmt)
 {
     // 定义输出缓冲区 用于拼接JSON字符串
-    printbuffer p = { 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
+    printbuffer p = { 0, 0, 0, 0, 0, 0, 0, { 0, 0, 0 } };
 
     // 预分配大小不能为负数 非法参数直接返回NULL
     if (prebuffer < 0)
@@ -2107,6 +2192,40 @@ static cJSON_bool print_array(const cJSON * const item, printbuffer * const outp
     // 遍历数组的所有元素
     while (current_element != NULL)
     {
+        // 格式化模式下，每个元素前添加缩进和换行
+        if (output_buffer->format)
+        {
+            size_t i;
+            size_t indent_count;
+            // 确保有足够空间存储换行和缩进
+            output_pointer = ensure(output_buffer, 1 + (output_buffer->indent_size == 0 ? output_buffer->depth : output_buffer->depth * output_buffer->indent_size));
+            if (output_pointer == NULL)
+            {
+                return false;
+            }
+            *output_pointer++ = '\n';  // 写入换行
+            output_buffer->offset++;
+            // 写入缩进
+            if (output_buffer->indent_size == 0)
+            {
+                // 使用制表符
+                for (i = 0; i < output_buffer->depth; i++)
+                {
+                    *output_pointer++ = '\t';
+                }
+                output_buffer->offset += output_buffer->depth;
+            }
+            else
+            {
+                // 使用空格
+                indent_count = output_buffer->depth * output_buffer->indent_size;
+                for (i = 0; i < indent_count; i++)
+                {
+                    *output_pointer++ = ' ';
+                }
+                output_buffer->offset += indent_count;
+            }
+        }
         // 调用print_value转换当前元素为字符串
         if (!print_value(current_element, output_buffer))
         {
@@ -2137,11 +2256,36 @@ static cJSON_bool print_array(const cJSON * const item, printbuffer * const outp
         current_element = current_element->next;
     }
 
-    // 写入右中括号 需2字节空间 右中括号+结束符
-    output_pointer = ensure(output_buffer, 2);
+    // 写入右中括号 格式化模式需要缩进和换行
+    size_t indent_before_close = output_buffer->format ? (output_buffer->indent_size == 0 ? (output_buffer->depth - 1) : (output_buffer->depth - 1) * output_buffer->indent_size) : 0;
+    size_t close_length = output_buffer->format ? (indent_before_close + 2) : 2;  // 缩进+换行+右括号 或 仅右括号
+    output_pointer = ensure(output_buffer, close_length);
     if (output_pointer == NULL)
     {
         return false;
+    }
+    // 格式化模式下写入缩进和换行
+    if (output_buffer->format)
+    {
+        size_t i;
+        if (output_buffer->indent_size == 0)
+        {
+            // 使用制表符
+            for (i = 0; i < (output_buffer->depth - 1); i++)
+            {
+                *output_pointer++ = '\t';
+            }
+        }
+        else
+        {
+            // 使用空格
+            for (i = 0; i < indent_before_close; i++)
+            {
+                *output_pointer++ = ' ';
+            }
+        }
+        *output_pointer++ = '\n';  // 换行
+        output_buffer->offset += indent_before_close + 1;
     }
     *output_pointer++ = ']'; // 写入右中括号
     *output_pointer = '\0';  // 写入结束符
@@ -2361,23 +2505,42 @@ static cJSON_bool print_object(const cJSON * const item, printbuffer * const out
     // 遍历对象的所有键值对
     while (current_item)
     {
-        // 格式化模式下写入缩进 按嵌套深度添加制表符
+        // 格式化模式下写入缩进 按嵌套深度添加缩进字符
         if (output_buffer->format)
         {
             size_t i;
-            // 确保有足够空间存储缩进的制表符
-            output_pointer = ensure(output_buffer, output_buffer->depth);
-            if (output_pointer == NULL)
+            size_t indent_count;
+            // 如果indent_size为0，使用制表符；否则使用空格
+            if (output_buffer->indent_size == 0)
             {
-                return false;
+                // 使用制表符缩进
+                indent_count = output_buffer->depth;
+                output_pointer = ensure(output_buffer, indent_count);
+                if (output_pointer == NULL)
+                {
+                    return false;
+                }
+                for (i = 0; i < indent_count; i++)
+                {
+                    *output_pointer++ = '\t';
+                }
+                output_buffer->offset += indent_count;
             }
-            // 写入对应深度的制表符
-            for (i = 0; i < output_buffer->depth; i++)
+            else
             {
-                *output_pointer++ = '\t';
+                // 使用空格缩进，每层缩进indent_size个空格
+                indent_count = output_buffer->depth * output_buffer->indent_size;
+                output_pointer = ensure(output_buffer, indent_count);
+                if (output_pointer == NULL)
+                {
+                    return false;
+                }
+                for (i = 0; i < indent_count; i++)
+                {
+                    *output_pointer++ = ' ';
+                }
+                output_buffer->offset += indent_count;
             }
-            // 更新写入位置
-            output_buffer->offset += output_buffer->depth;
         }
 
         /* 输出键名 */
@@ -2438,20 +2601,35 @@ static cJSON_bool print_object(const cJSON * const item, printbuffer * const out
         current_item = current_item->next;
     }
 
-    // 计算写入右大括号所需空间 格式化模式需缩进+右大括号 紧凑模式仅右大括号
-    output_pointer = ensure(output_buffer, output_buffer->format ? (output_buffer->depth + 1) : 2);
+    // 计算写入右大括号所需空间 格式化模式需缩进+换行+右大括号 紧凑模式仅右大括号
+    size_t indent_before_close = output_buffer->format ? (output_buffer->indent_size == 0 ? (output_buffer->depth - 1) : (output_buffer->depth - 1) * output_buffer->indent_size) : 0;
+    output_pointer = ensure(output_buffer, output_buffer->format ? (indent_before_close + 2) : 2);
     if (output_pointer == NULL)
     {
         return false;
     }
-    // 格式化模式下写入缩进 比当前深度少1级
+    // 格式化模式下写入缩进和换行
     if (output_buffer->format)
     {
         size_t i;
-        for (i = 0; i < (output_buffer->depth - 1); i++)
+        if (output_buffer->indent_size == 0)
         {
-            *output_pointer++ = '\t';
+            // 使用制表符
+            for (i = 0; i < (output_buffer->depth - 1); i++)
+            {
+                *output_pointer++ = '\t';
+            }
         }
+        else
+        {
+            // 使用空格
+            for (i = 0; i < indent_before_close; i++)
+            {
+                *output_pointer++ = ' ';
+            }
+        }
+        *output_pointer++ = '\n';  // 换行
+        output_buffer->offset += indent_before_close + 1;
     }
     *output_pointer++ = '}'; // 写入右大括号
     *output_pointer = '\0';  // 写入结束符
@@ -3354,7 +3532,7 @@ CJSON_PUBLIC(void) cJSON_DeleteItemFromObjectCaseSensitive(cJSON *object, const 
 {
     cJSON_Delete(cJSON_DetachItemFromObjectCaseSensitive(object, string));
 }
-与系统头文件中的单行注释有关
+
 /* Replace array/object items with new ones. */
 CJSON_PUBLIC(cJSON_bool) cJSON_InsertItemInArray(cJSON *array, int which, cJSON *newitem)
 {
@@ -3501,7 +3679,6 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateTrue(void)
     {
         item->type = cJSON_True;
     }
-与系统头文件中的单行注释有关
     return item;
 }
 
@@ -3554,7 +3731,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateNumber(double num)
 }
 
 CJSON_PUBLIC(cJSON *) cJSON_CreateString(const char *string)
-{与系统头文件中的单行注释有关
+{
     cJSON *item = cJSON_New_Item(&global_hooks);
     if(item)
     {
@@ -3596,7 +3773,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateObjectReference(const cJSON *child)
 CJSON_PUBLIC(cJSON *) cJSON_CreateArrayReference(const cJSON *child) {
     cJSON *item = cJSON_New_Item(&global_hooks);
     if (item != NULL) {
-        item->type = cJSON_Array | cJSON_IsReference;与系统头文件中的单行注释有关
+        item->type = cJSON_Array | cJSON_IsReference;
         item->child = (cJSON*)cast_away_const(child);
     }
 
@@ -3722,7 +3899,7 @@ CJSON_PUBLIC(cJSON *) cJSON_CreateFloatArray(const float *numbers, int count)
 
     return a;
 }
-与系统头文件中的单行注释有关
+
 CJSON_PUBLIC(cJSON *) cJSON_CreateDoubleArray(const double *numbers, int count)
 {
     size_t i = 0;
@@ -3869,7 +4046,7 @@ cJSON * cJSON_Duplicate_rec(const cJSON *item, size_t depth, cJSON_bool recurse)
         if (next != NULL)
         {
             /* If newitem->child already set, then crosswire ->prev and ->next and move on */
-            next->next = newchild;与系统头文件中的单行注释有关
+            next->next = newchild;
             newchild->prev = next;
             next = newchild;
         }
@@ -3960,7 +4137,7 @@ CJSON_PUBLIC(void) cJSON_Minify(char *json)
         switch (json[0])
         {
             case ' ':
-            case '\t':与系统头文件中的单行注释有关
+            case '\t':
             case '\r':
             case '\n':
                 json++;
